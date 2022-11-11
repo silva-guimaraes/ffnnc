@@ -7,15 +7,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <ncurses.h>
+/* #include <ncurses.h> */
 
 //https://github.com/casperbh96/Neural-Network-From-Scratch/blob/master/NN_From_Scratch.ipynb
 
-#define MAX_MNIST 100
-#define TRAIN_IMAGES_PATH "/home/xi/Desktop/prog/lisp/common lisp/ann/data/train-images.idx3-ubyte"
-#define TRAIN_LABELS_PATH "/home/xi/Desktop/prog/lisp/common lisp/ann/data/train-labels.idx1-ubyte"
-#define TEST_IMAGES_PATH "/home/xi/Desktop/prog/lisp/common lisp/ann/data/t10k-images.idx3-ubyte"
-#define TEST_LABELS_PATH "/home/xi/Desktop/prog/lisp/common lisp/ann/data/t10k-labels.idx1-ubyte"
+#define MAX_MNIST 10000
+#define EPOCHS 10
+#define TRAIN_IMAGES_PATH "/home/xi/desktop/prog/lisp/common lisp/ann/data/train-images.idx3-ubyte"
+#define TRAIN_LABELS_PATH "/home/xi/desktop/prog/lisp/common lisp/ann/data/train-labels.idx1-ubyte"
+#define TEST_IMAGES_PATH "/home/xi/desktop/prog/lisp/common lisp/ann/data/t10k-images.idx3-ubyte"
+#define TEST_LABELS_PATH "/home/xi/desktop/prog/lisp/common lisp/ann/data/t10k-labels.idx1-ubyte"
 
 #define W1 weights[0]
 #define W2 weights[1]
@@ -29,7 +30,7 @@ struct matrix {
 
 typedef struct matrix matrix;
 const size_t sdo = sizeof(long double); 
-const long double L_RATE = 0.001; //não abusar dessa variavel.
+const long double L_RATE = 0.0005; //não abusar dessa variavel.
 
 struct mnist {
     uint8_t* image;
@@ -138,7 +139,7 @@ matrix* p_transpose(matrix* a)
 }
 matrix* dot_product(matrix* a, matrix* b)
 {
-    // tratar vetor como matriz coluna em casos de multiplição entre uma matriz em um vetor  
+    // tratar vetor como matriz coluna em casos de multiplição entre uma matriz em um vetor
     if (b->m == 1 && a->n == b->n){ 
 	transpose(b);
     }
@@ -382,7 +383,9 @@ long double rand_ld(long double max)
 int compute_acc(struct mnist* x)
 {
     size_t argmax = 0; 
-    mat_iterator(x->act3, if (x->act3->mat[i][j] >= x->act3->mat[argmax][0]) argmax = i;);
+    mat_iterator(x->act3, 
+	    if (x->act3->mat[i][j] >= x->act3->mat[argmax][0]) 
+		argmax = i;);
 
     if (argmax == x->label)
 	return 1;
@@ -486,8 +489,7 @@ matrix** load_params(FILE* load)
 
 int main(void)
 {
-    srand(time(NULL)); 
-    size_t epochs = 10; 
+    srand(1); //isso garante que a rede neural retorne os mesmos resultados em todos os treinos dado os mesmos parametros
 
     matrix** gradients;
     FILE* load = NULL; 
@@ -510,7 +512,7 @@ int main(void)
 
     printf("iniciando main loop...\n");
     print_mat(W3, false);
-    for (unsigned int i = 0; i < epochs; i++) // epochs
+    for (unsigned int i = 0; i < EPOCHS; i++) // epochs
     {  
 	struct mnist* tmp = train_set; 
 	printf("epoch %d...\n", i + 1);
@@ -519,8 +521,8 @@ int main(void)
 	{ 
 	    forward_pass(tmp, weights);
 	    gradients = backward_pass(tmp, weights);
-	    if (tmp->next == NULL && i == epochs - 1)
-		print_mat(gradients[2], false);
+	    if (tmp->next == NULL && i == EPOCHS - 1)
+		print_mat(gradients[2], true);
 	    update_parameters(gradients, weights); 
 
 	    free_activations(tmp); 
@@ -547,3 +549,4 @@ int main(void)
 
 
 }
+
