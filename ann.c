@@ -1,3 +1,8 @@
+// ffnnc feed forward neural network. 'c' de C.
+
+// todo:
+// vieses
+// batch sizes
 
 #include <stdio.h>
 #include <string.h>
@@ -10,8 +15,6 @@
 #include <assert.h>
 
 #include "matrix.c"
-
-int train_data_size = 0;
 
 #define TRAIN_IMAGES_PATH \
 "/home/xi/Desktop/prog/lisp/common lisp/ann/data/train-images.idx3-ubyte"
@@ -35,11 +38,12 @@ typedef struct layer {
   // tem vieses e não as conexões.
   struct matrix* b;
   // correções dos pesos. calculados após os resultados.
-  // a magia acontece aqui.
   struct matrix* error;
+  // se machine learning fosse sobre escalar montanhas, um gradient seria uma trilha pro
+  // pico mais alto da montanha. exceto que ao contrario. é aqui que a magia acontece.
   struct matrix* gradient;
-  // função de ativação para a proxima camada. pra si própia no caso da ultima camada. ativação é
-  // calculada depois da soma de todos os parametros.
+  // função de ativação para a proxima camada. pra si própia no caso da ultima camada.
+  // ativação é calculada depois da soma de todos os parametros.
   struct matrix* (*act)(matrix*);
   // numero de neurônios.
   size_t size;
@@ -90,6 +94,19 @@ typedef struct train_data {
   struct train_data* next;
 } train_data, test_data;
 
+
+enum dataset_type { training = 1, testing };
+
+typedef struct train_data_context {
+  char* dataset_id;
+  train_data* train;
+  size_t ntrain;
+  train_data* test;
+  size_t ntest;
+  size_t test_freq;
+} td_context;
+  
+
 // wip
 typedef struct config {
   struct layout* layout;
@@ -137,8 +154,10 @@ matrix* normalize_pixels(train_data* x)
 
 
 //http://yann.lecun.com/exdb/mnist/
-train_data* parse_idx_files(char* x, char* y, size_t max)
+void parse_idx_files(char* x, char* y, td_context* tdc, int ds_type)
 {
+  tdc->dataset_id = "MNIST";
+    
   FILE* images = fopen(x, "r"); assert(images != NULL);
   FILE* labels = fopen(y, "r"); assert(labels != NULL);
   uint32_t magic, img_count, rows, columns,
@@ -160,10 +179,15 @@ train_data* parse_idx_files(char* x, char* y, size_t max)
   train_data* first, *p = &(struct train_data) { 0 };
   first = p;
 
-  for (uint32_t i = 0; i < img_count && i < max; i++)
-    {
+  size_t max;
 
-      printf("\rimportantdo MNIST %d/%ld...", i + 1, max);
+  if (ds_type == training)
+    max = tdc->ntrain;
+  else
+    max = tdc->ntest;
+  for (size_t i = 0; i < img_count && i < max; i++)
+    {
+      printf("\rimportantdo MNIST %ld/%ld...", i + 1, max);
       fflush(stdout);
       train_data* tmp = malloc(sizeof(struct train_data));
       if (tmp == NULL){
@@ -173,8 +197,8 @@ train_data* parse_idx_files(char* x, char* y, size_t max)
 
       tmp->data = malloc(rows * columns);
       if (tmp->data == NULL){
-	fprintf(stderr, "tmp->data = malloc(rows * columns) <---"); 
-	exit(1);
+        fprintf(stderr, "tmp->data = malloc(rows * columns) <---"); 
+        exit(1);
       }
       if (fread(tmp->data, 1, rows * columns, images) == 0){
         fprintf(stderr, "fread(tmp->data, 1, rows * columns, images) <--\n");
@@ -197,15 +221,16 @@ train_data* parse_idx_files(char* x, char* y, size_t max)
 
       p->next = tmp;
       p = p->next; 
-
-      train_data_size = i + 1;
     }
 
   fclose(images); fclose(labels);
   printf("\r\rMNIST importado com sucesso!\n");
   fflush(stdout);
 
-  return first->next; 
+  if (ds_type == training)
+    tdc->train = first->next; 
+  else 
+    tdc->test = first->next; 
 } 
 
 matrix* one_hot(uint8_t x)
@@ -307,72 +332,17 @@ void calculate_gradients(network* nn, matrix* target)
 void update_parameters(network* nn)
 {
   layer_iterator(nn,
-                 if (nn->l[l]->gradient == NULL) continue;
+                 struct layer* lay = nn->l[l];
+                 if (lay->gradient == NULL) continue;
 
-                 /* long double alpha = nn->learn_rate * mat_average(nn->l[l]->gradient); */
-                 /* mat_iterator(nn->l[l]->wgt, nn->l[l]->wgt->mat[i][j] += alpha); */
-                 mat_iterator(nn->l[l]->wgt,
-                              nn->l[l]->wgt->mat[i][j] -=
-                              nn->learn_rate * nn->l[l]->gradient->mat[i][j]);
+                 /* long double alpha = nn->learn_rate * mat_average(lay->gradient); */
+                 /* mat_iterator(lay->wgt, lay->wgt->mat[i][j] += alpha); */
+                 mat_iterator(lay->wgt,
+                              lay->wgt->mat[i][j] -=
+                              nn->learn_rate * lay->gradient->mat[i][j]);
                  free_act(nn, error); free_act(nn, gradient);
                );
 }
-
-// matrix** backward_pass(struct mnist* x, matrix* weights[3])
-// {
-//   matrix** gradients = malloc(sizeof(struct matrix*) * 3), 
-//     *error3, *error2, *error1; 
-//     
-// 
-//   {//computar atualização do peso 3 	
-//     error3 = copy_mat(x->act3);
-//     matrix* z3s = softmax(x->z3, true), *ohl = one_hot(x->label);
-//     mat_iterator(error3, 
-//                  error3->mat[i][j] -= ohl->mat[i][j];
-//                  error3->mat[i][j] *= 2;
-//                  // talvez ? error3->mat[i][j] = pow(error3->mat[i][j], 2);
-//                  error3->mat[i][j] /= x->act3->m;
-//                  error3->mat[i][j] *= z3s->mat[i][j]; 
-//                  ); 
-//     free_mat_struct(z3s); free_mat_struct(ohl); 
-// 
-//     gradients[2] = outer(error3, x->act2);
-//   } 
-// 
-//   { //computar atualização do peso 2 	
-//     matrix* w3t = copy_mat(W3); transpose(w3t);
-//     error2 = dot_product(w3t, error3);
-//     matrix* sigtmp = sigmoid_activation(x->z2, true);
-//     mat_iterator(error2, error2->mat[i][j] *= sigtmp->mat[i][j];);
-//     free_mat_struct(w3t); free_mat_struct(sigtmp);
-// 
-//     gradients[1] = outer(error2, x->act1);
-//   }
-// 
-//   { //computar atualização do peso 1 	
-//     matrix* w2t = copy_mat(W2); transpose(w2t);
-//     error1 = dot_product(w2t, error2);
-//     matrix* sigtmp = sigmoid_activation(x->z1, true);
-//     mat_iterator(error1, error1->mat[i][j] *= sigtmp->mat[i][j];);
-//     free_mat_struct(w2t); free_mat_struct(sigtmp);
-// 
-//     gradients[0] = outer(error1, x->act0);
-//   }
-//   free_mat_struct(error3); free_mat_struct(error2); free_mat_struct(error1);
-// 
-//   return gradients;
-// }
-
-// void update_parameters(matrix* gradients[3], matrix* weights[3])
-// { 
-//   for (int k = 0; k < 3; k++){
-//     mat_iterator(weights[k], 
-//                  gradients[k]->mat[i][j] *= L_RATE;
-//                  weights[k]->mat[i][j] -= gradients[k]->mat[i][j];); 
-//     free_mat_struct(gradients[k]);
-//   }
-//   free(gradients); 
-// }
 
 long double rand_ld(long double max)
 {
@@ -541,51 +511,84 @@ long double cost_function(matrix* pred, matrix* target)
   return sum;
 }
 
-void train_nn(network* nn, train_data* td, int epochs)
+long double test_nn(network* nn, td_context* tdc)
 {
-    train_data* first = td;
-    for (int i = 0; i < epochs; i++){ 
-	td = first;
-	long double cost = 0, steps = 0;
-	for (; td != NULL; td = td->next, steps++)
-	{
-	    printf("\rtreinando... %.0LF/%d (epoch %d)", steps, train_data_size, i + 1);
-	    fflush(stdout);
-	    forward_pass(td->input, nn);
-	    matrix* target = one_hot(td->label);
-	    cost += cost_function(nn->l[nn->nlayers - 1]->a, target );
-	    calculate_gradients(nn, target);
-        update_parameters(nn);
-	    clear_nn(nn);
-        free_mat_struct(target);
-	} 
-	printf("\rcost function: %LF (epoch %d)\n", cost / steps, i + 1);
-    }
+  train_data* td = tdc->test;
+  long double cost = 0, steps = 0;
+  for (; td != NULL; td = td->next, steps++)
+    {
+      printf("\rtestando... %.0LF/%ld", steps, tdc->ntest);
+      fflush(stdout);
+      forward_pass(td->input, nn);
+      matrix* target = one_hot(td->label);
+      cost += cost_function(nn->l[nn->nlayers - 1]->a, target );
+      clear_nn(nn);
+      free_mat_struct(target);
+    } 
+  return cost / steps;
 }
+
+
+void train_nn(network* nn, td_context* tdc, int epochs)
+{
+  train_data* td = tdc->train;
+  train_data* first = td;
+  for (int i = 0; i < epochs; i++){ 
+    td = first;
+    long double cost = 0, steps = 0;
+    for (; td != NULL; td = td->next, steps++)
+      {
+        printf("\rtreinando... %.0LF/%ld (epoch %d)", steps, tdc->ntrain, i + 1);
+        fflush(stdout);
+        forward_pass(td->input, nn);
+        matrix* target = one_hot(td->label);
+        cost += cost_function(nn->l[nn->nlayers - 1]->a, target );
+        calculate_gradients(nn, target);
+        update_parameters(nn);
+        clear_nn(nn);
+        free_mat_struct(target);
+      } 
+    printf("\rcost function: %LF (epoch %d)\n", cost / steps, i + 1);
+
+    if (tdc->ntest > 0 && (i + 1) % tdc->test_freq == 0) {
+        long double test_cost = test_nn(nn, tdc);
+        printf("\rcost function (teste): %LF (%ld epoch(s))\n", test_cost, tdc->test_freq);
+      }
+  }
+}
+
+void print_layout(network* nn) 
+{
+  layer_iterator(nn, printf("%ld > ", nn->l[l]->size));
+  printf("\n");
+    
+}
+
+// 784 step 64 step 10
+// 784 step 64 soft 10
+// 784 step 128 soft 10
+// 784 relu 128 soft 10 (400)
 
 int main(void)
 {
   printf("ffnnc\n");
 
-  const layout nn_layout[] = {{784, &sigmoid},
-                              {128, &sigmoid},
-                              {64, &sigmoid},
-                              {10, &softmax},
+  const layout nn_layout[] = {{784, &relu}, 
+                              // {392, &softmax},
+                              {64, &softmax},
+                              {10, NULL},
                               {0, NULL}};
+  struct network* nn = make_nn(nn_layout, 0.005);
 
-  struct network* nn = make_nn(nn_layout, 1);
 
-  train_data* foo = parse_idx_files(TRAIN_IMAGES_PATH, TRAIN_LABELS_PATH, 500);
-  foo = foo->next;
+  td_context tdc = {.ntrain = 60000, .ntest = 500, .test_freq = 10};
 
-  train_nn(nn, foo, 100); 
+  parse_idx_files(TRAIN_IMAGES_PATH, TRAIN_LABELS_PATH, &tdc, training);
+  parse_idx_files(TEST_IMAGES_PATH, TEST_LABELS_PATH, &tdc, testing);
 
-  // forward_pass(foo->input, nn);
-  // matrix* target = one_hot((uint8_t) foo->label);
-  // long double cost = cost_function(nn->l[nnlast]->a, target);
-  // printf("cost: %LF, target: %d\n\n", cost, (int) foo->label);
+  print_layout(nn);
 
-  // calculate_error(nn, target);
+  train_nn(nn, &tdc, 200); 
 
   free_nn(nn);
 
