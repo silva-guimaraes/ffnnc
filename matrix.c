@@ -6,8 +6,8 @@ const size_t sdo = sizeof(long double); // todo: não.
 
 typedef struct matrix {
   long double** mat; // array de ponteiros
-  size_t m; // fileiras, j
-  size_t n; // colunas, i
+  size_t m; // fileiras, i
+  size_t n; // colunas, j
 } matrix;
 
 
@@ -28,16 +28,65 @@ typedef struct matrix {
 
 // (matrix* a, bool limit)
 #define print_simple_mat(a, limit)\
-  print_mat(a, limit, 8, "..%ld..\t%.2LF " , "%.2LF  ")
+  print_mat(a, limit, 10, "..%ld..\t%.2LF " , "%.2LF\t")
 
 #define print_long_mat(a, limit)\
   print_mat(a, limit, 3, "..%ld..\t%.10LF\t" , "%.10LF\t")
+
+void print_info_mat(matrix* a)
+{
+  printf("%ldx%ld\n", a->m, a->n);
+}
+
 #define mat_iterator(mat, body)                 \
   for (size_t i = 0; i < mat->m; i++){          \
     for (size_t j = 0; j < mat->n; j++){        \
       body;                                     \
         }                                       \
-  }
+  } 
+
+#define mat_mat_ops(a, b, sign) \
+  mat_iterator(a, a->mat[i][j] = \
+      a->mat[i][j] \
+      sign \
+      b->mat[i][j];\
+      ); 
+
+#define mat_scale_ops(a, s, sign) \
+  mat_iterator(a, a->mat[i][j] = \
+      a->mat[i][j] \
+      sign \
+      s; \
+      ); 
+
+#define mat_sum_mat(a, b)\
+  mat_mat_ops(a, b, +);
+
+#define mat_minus_mat(a, b)\
+  mat_mat_ops(a, b, -);
+
+#define mat_times_mat(a, b)\
+  mat_mat_ops(a, b, *);
+
+#define mat_div_mat(a, b)\
+  mat_mat_ops(a, b, /);
+
+#define mat_sum_sca(a, s)\
+  mat_scale_ops(a, s, *);
+
+#define mat_minus_sca(a, s)\
+  mat_scale_ops(a, s, -);
+
+#define mat_scale(a, s)\
+  mat_scale_ops(a, s, *);
+
+#define mat_div_sca(a, s)\
+  mat_scale_ops(a, s, /);
+
+#define mat_pow(a, s)\
+  mat_iterator(a, a->mat[i][j] = pow(a->mat[i][j], s )); 
+
+// amo C
 
 
 
@@ -91,11 +140,10 @@ void free_mat_arrays(long double** x, size_t m)
 void free_mat_struct(matrix* m)
 {
   free_mat_arrays(m->mat, m->m);
-  //free(m->mat);
   free(m); 
 }
 
-void transpose(matrix* a)
+matrix* transpose(matrix* a)
 { 
   long double** retmat = alloc_mat(a->n, a->m, 0);
 
@@ -107,6 +155,8 @@ void transpose(matrix* a)
   a->m = a->n;
   a->n = tmp;
   a->mat = retmat;
+
+  return a;
 }
 
 matrix* p_transpose(matrix* a)
@@ -119,10 +169,15 @@ matrix* p_transpose(matrix* a)
 }
 
 matrix* dot_product(matrix* a, matrix* b)
-{
-  // tratar vetor como matriz coluna em casos de multiplição entre uma matriz em um vetor
-  if (b->m == 1 && a->n == b->n){ 
+{ 
+  bool transposed = false;
+
+  // print_info_mat(a);
+  // print_info_mat(b);
+  // tratar vetores como matrizes de coluna caso possivel
+  if (a->n == b->n && b->m == 1){ 
     b = p_transpose(b);
+    transposed = true;
   }
   assert(a->n == b->m);
   matrix* ret = new_mat(a->m, b->n, 0); 
@@ -136,6 +191,9 @@ matrix* dot_product(matrix* a, matrix* b)
         ret->mat[i][j] = sum;
       }
     }
+  if (transposed)
+    free_mat_struct(b);
+
   return ret; 
 } 
 
@@ -161,6 +219,7 @@ void flatten(matrix* a)
   a->m = 1;
   a->n = snew;
 }
+
 
 matrix* outer(matrix* a, matrix* b)
 {
@@ -233,6 +292,19 @@ matrix** load_params(FILE* load)
     weights[i] = load_matrix(load);
   } 
   return weights;
+}
+
+#define return_map(z, body)                     \
+  matrix* ret = new_mat(z->m, z->n, 0);         \
+  mat_iterator(z, body);                        \
+  return ret;                                   \
+
+#define ret_map(z, value)                       \
+  return_map(z, ret->mat[i][j] = value)
+
+long double mat_average(matrix* a)
+{
+  return sum_mat(a) / (a->m * a->n);
 }
 
 #endif

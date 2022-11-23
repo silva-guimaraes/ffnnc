@@ -11,6 +11,8 @@
 
 #include "matrix.c"
 
+int train_data_size = 0;
+
 #define TRAIN_IMAGES_PATH \
 "/home/xi/Desktop/prog/lisp/common lisp/ann/data/train-images.idx3-ubyte"
 #define TRAIN_LABELS_PATH \
@@ -20,30 +22,37 @@
 #define TEST_LABELS_PATH \
   "/home/xi/Desktop/prog/lisp/common lisp/ann/data/t10k-labels.idx1-ubyte"
 
+// camadas da rede neural.
 typedef struct layer {
-  // ativações. resultado de todos os paramtros calculados da camada anterior.
+  // ativações. resultado de todos os paramatros calculados da camada anterior. a fim de praticidade,
+  // isso representa todos os neurônios da camada.
   struct matrix* a;
   // pesos (weights). parametros. a importancia de cada conexão entre neurônios.
-  // a magia acontece aqui.
   struct matrix* wgt;
-  // pesos aplicados. salvos para serem usados na hora de calcular o gradient descent.
+  // pesos aplicados. salvos para serem usados na hora de calcular os gradients.
   struct matrix* z;
   // vieses (biases). parametros iguais aos pesos. a única diferença é que neuronios
   // tem vieses e não as conexões.
   struct matrix* b;
+  // correções dos pesos. calculados após os resultados.
+  // a magia acontece aqui.
+  struct matrix* error;
+  struct matrix* gradient;
+  // função de ativação para a proxima camada. pra si própia no caso da ultima camada. ativação é
+  // calculada depois da soma de todos os parametros.
+  struct matrix* (*act)(matrix*);
+  // numero de neurônios.
   size_t size;
-  // função de ativação para a proxuma camada. ativação é calculada depois da soma
-  // de todos os parametros.
-  matrix* (*act)(matrix*);
 } layer;
 
-// struct network, de "neural network". camadas em serie
-// a primeira camada serve apenas de enfeite. toda vez que nós previsamos fazer um forward
+// rede neural. camadas em serie.
+// a primeira camada serve apenas de enfeite. toda vez que nós previsamos fazer o forward
 // propagation criamos uma nova camada com todas as ativações correspondentes ao
 // formato dos dados e dizemos pra rede neural que aquela será a nova primeira camada.
-// são dezenas de dados diferentes que passam por essas camadas no final das contas.
+// são dezenas de inputs diferentes no final das contas.
 typedef struct network {
   struct layer** l; // array de pointeros pras camadas em si.
+  long double learn_rate;
   size_t nlayers; // numero de camadas
 } network;
 
@@ -51,28 +60,32 @@ typedef struct network {
 // da futura rede neural.
 // varios desses em uma array é o jeito que make_nn() entende como uma rede neural deve
 // ser criada. 
-// caso não queira problemas a array deve terminar com uma ultima camada com o numero de 
+// caso não queira problemas, a array deve terminar com uma ultima camada com o numero de 
 // neuronios sendo 0 e a ativação sendo NULL. 100% das vezes. sendo assim a penultima
 // camada especificada é a ultima camada da rede neural.
-typedef struct layout {
-  int size; // quantos neurônios por camada.
-  matrix* (*act)(matrix*); // função de ativação pra proxima camada.
-  // pra si própia no caso da ultima camada.
-} layout;
 // exemplo:
 // struct layout foo[] = {{20, &sigmoid}, /*input*/
 // 			 {10, &sigmoid},  /*camada 2*/
-// 			 {5, %softmax},   /*output*/
+// 			 {5, &softmax},   /*output*/
 // 			 {0, NULL}}; 	  /*fim do layout*/
+typedef struct layout {
+  int size; // quantos neurônios por camada.
+  matrix* (*act)(matrix*); // função de ativação
+} layout;
 
 
+// conteiner genérico de dados para treino. não tão genérico quanto eu gostaria.
 typedef struct train_data {
+  // conteudo. em qualquer formato.
   uint8_t* data;
+  // bytes por item.
   size_t size;
+  // quantos itens.
   size_t nmemb;
-  int label;
-
-  matrix* input;
+  // resultado esperado.
+  int label; 
+  // vetor que servirá de input pra camada de input.
+  matrix* input; 
 
   struct train_data* next;
 } train_data, test_data;
@@ -84,19 +97,23 @@ typedef struct config {
 
 const long double L_RATE = 0.0005; //não abusar dessa variavel.
 
-// amo C
-
 #define layer_iterator(nn, body)                \
-  for (size_t i = 0; i < nn->nlayers; i++){     \
+  for (size_t l = 0; l < nn->nlayers; l++){     \
     body;                                       \
   } 
 
+#define free_act(nn, x)                         \
+  if (nn->l[l]->x != NULL){                     \
+    free_mat_struct(nn->l[l]->x);               \
+    nn->l[l]->x = NULL;                         \
+  }
+
 matrix* normalize_pixels(train_data* x)
 {
-  matrix* ret = new_mat(x->nmemb, 1, 0);
+  matrix* ret = new_mat(1, x->nmemb, 0);
 
-  for (size_t i = 0; i < ret->m; i++)
-    ret->mat[i][0] = (long double) x->data[i] / 255; 
+  for (size_t i = 0; i < ret->n; i++)
+    ret->mat[0][i] = (long double) x->data[i] / 255; 
 
   return ret;
 } 
@@ -145,9 +162,20 @@ train_data* parse_idx_files(char* x, char* y, size_t max)
 
   for (uint32_t i = 0; i < img_count && i < max; i++)
     {
+
+      printf("\rimportantdo MNIST %d/%ld...", i + 1, max);
+      fflush(stdout);
       train_data* tmp = malloc(sizeof(struct train_data));
+      if (tmp == NULL){
+	fprintf(stderr, "train_data* tmp = malloc(sizeof(struct train_data)) <---\n"); 
+	exit(1);
+      }
 
       tmp->data = malloc(rows * columns);
+      if (tmp->data == NULL){
+	fprintf(stderr, "tmp->data = malloc(rows * columns) <---"); 
+	exit(1);
+      }
       if (fread(tmp->data, 1, rows * columns, images) == 0){
         fprintf(stderr, "fread(tmp->data, 1, rows * columns, images) <--\n");
         exit(1);
@@ -158,7 +186,7 @@ train_data* parse_idx_files(char* x, char* y, size_t max)
       }
       tmp->next = NULL; 
       tmp->nmemb = rows * columns;
-      tmp->size = 8;
+      tmp->size = 1;
 
       // normalizar pixeis das imagens para que todos fiquem com valores entre
       // 0 e 1. com 0 sendo preto e 1 sendo branco.
@@ -169,9 +197,13 @@ train_data* parse_idx_files(char* x, char* y, size_t max)
 
       p->next = tmp;
       p = p->next; 
+
+      train_data_size = i + 1;
     }
 
   fclose(images); fclose(labels);
+  printf("\r\rMNIST importado com sucesso!\n");
+  fflush(stdout);
 
   return first->next; 
 } 
@@ -180,9 +212,9 @@ matrix* one_hot(uint8_t x)
 {
   assert(x < 10);
 
-  matrix* ret = new_mat(10, 1, 0);
+  matrix* ret = new_mat(1, 10, 0);
 
-  ret->mat[x][0] = 1;
+  ret->mat[0][x] = 1;
 
   return ret;
 } 
@@ -216,37 +248,74 @@ matrix* softmax(matrix* x)
   return exps; 
 } 
 
-#define return_map(z, body)                     \
-  matrix* ret = new_mat(z->m, z->n, 0);         \
-  mat_iterator(z, body);                        \
-  return ret;                                   \
-
-#define ret_map(z, value)                       \
-  return_map(z, ret->mat[i][j] = value)
-
-long double sigmoid_function(long double z)
-{
-  return (expl(-z)) / (powl((expl(-z) + 1), 2.0));
-} 
-
-long double deriv_sigmoid_function(long double z)
-{
-  return 1 / (1 + expl(-z));
-} 
-
 matrix* sigmoid(matrix* z)
 {
-  ret_map(z, sigmoid_function(z->mat[i][j]));
+  return_map(z, 
+      long double zij = z->mat[i][j];
+      ret->mat[i][j] = expl(-zij) / powl(expl(-zij) + 1, 2.0)
+      );
 }
 
 matrix* deriv_sigmoid(matrix* z)
 {
-  ret_map(z, deriv_sigmoid_function(z->mat[i][j]));
+  return_map(z, 
+      long double zij = z->mat[i][j];
+      ret->mat[i][j] = 1 / (1 + expl(-zij))
+      );
 }
 
 matrix* relu(matrix* z)
 {
   ret_map(z, fmax(0, z->mat[i][j]));
+}
+
+#define threshold 0
+// isso basicamente faz com que neurônios virem perceptrons
+matrix* step(matrix* z)
+{
+  ret_map(z, z->mat[i][j] > threshold ? 1 : 0);
+}
+
+void calculate_gradients(network* nn, matrix* target)
+{
+#define nnlast nn->nlayers - 1
+
+  matrix* out_error = copy_mat(nn->l[nnlast]->a);
+
+  mat_minus_mat(out_error, target); 
+  nn->l[nnlast]->error = out_error;
+  matrix* l_1 = out_error;
+
+  // aqui o bixo pega
+  for (int l = nnlast - 1; l > 0; l--)
+  { 
+    matrix* i_error = copy_mat(nn->l[l]->a); 
+    matrix* dot = dot_product(nn->l[l + 1]->error, nn->l[l]->wgt);
+
+    mat_iterator(i_error,
+                 i_error->mat[i][j] = 
+                 nn->l[l]->a->mat[i][j] * (1 - nn->l[l]->a->mat[i][j]) * dot->mat[i][j]; 
+	);
+    free_mat_struct(dot);
+
+    nn->l[l]->error = i_error;
+    nn->l[l]->gradient = outer(nn->l[l + 1]->error, nn->l[l]->a);
+    l_1 = i_error; 
+  } 
+} 
+
+void update_parameters(network* nn)
+{
+  layer_iterator(nn,
+                 if (nn->l[l]->gradient == NULL) continue;
+
+                 /* long double alpha = nn->learn_rate * mat_average(nn->l[l]->gradient); */
+                 /* mat_iterator(nn->l[l]->wgt, nn->l[l]->wgt->mat[i][j] += alpha); */
+                 mat_iterator(nn->l[l]->wgt,
+                              nn->l[l]->wgt->mat[i][j] -=
+                              nn->learn_rate * nn->l[l]->gradient->mat[i][j]);
+                 free_act(nn, error); free_act(nn, gradient);
+               );
 }
 
 // matrix** backward_pass(struct mnist* x, matrix* weights[3])
@@ -261,6 +330,7 @@ matrix* relu(matrix* z)
 //     mat_iterator(error3, 
 //                  error3->mat[i][j] -= ohl->mat[i][j];
 //                  error3->mat[i][j] *= 2;
+//                  // talvez ? error3->mat[i][j] = pow(error3->mat[i][j], 2);
 //                  error3->mat[i][j] /= x->act3->m;
 //                  error3->mat[i][j] *= z3s->mat[i][j]; 
 //                  ); 
@@ -293,16 +363,16 @@ matrix* relu(matrix* z)
 //   return gradients;
 // }
 
-void update_parameters(matrix* gradients[3], matrix* weights[3])
-{ 
-  for (int k = 0; k < 3; k++){
-    mat_iterator(weights[k], 
-                 gradients[k]->mat[i][j] *= L_RATE;
-                 weights[k]->mat[i][j] -= gradients[k]->mat[i][j];); 
-    free_mat_struct(gradients[k]);
-  }
-  free(gradients); 
-}
+// void update_parameters(matrix* gradients[3], matrix* weights[3])
+// { 
+//   for (int k = 0; k < 3; k++){
+//     mat_iterator(weights[k], 
+//                  gradients[k]->mat[i][j] *= L_RATE;
+//                  weights[k]->mat[i][j] -= gradients[k]->mat[i][j];); 
+//     free_mat_struct(gradients[k]);
+//   }
+//   free(gradients); 
+// }
 
 long double rand_ld(long double max)
 {
@@ -351,13 +421,15 @@ layer* new_layer(size_t size, size_t next_size, matrix* (*act)(matrix*))
   ret->a = NULL;
   ret->z = NULL;
   ret->b = NULL;
+  ret->error = NULL;
+  ret->gradient = NULL;
   ret->size = size;
   ret->act = act;
 
   return ret;
 }
 
-struct network* make_nn(const layout* layout)
+struct network* make_nn(const layout* layout, long double learn_rate)
 {
   // isso garante que a rede neural retorne os mesmos resultados em todos os treinos
   // dado os mesmos parametros
@@ -369,12 +441,13 @@ struct network* make_nn(const layout* layout)
   for (ret->nlayers = 0; layout[ret->nlayers].size != 0; ret->nlayers++);
 
   ret->l = malloc(sizeof(struct layer*) * ret->nlayers);
+  ret->learn_rate = learn_rate;
 
-  layer_iterator
-    (ret,
-     int next_size = i + 1 == ret->nlayers ? 0 : layout[i + 1].size;
-     ret->l[i] = new_layer(layout[i].size, next_size,  layout[i].act);
-     );
+  layer_iterator(ret,
+      // fixme
+      int next_size = l + 1 == ret->nlayers ? 0 : layout[l + 1].size;
+      ret->l[l] = new_layer(layout[l].size, next_size,  layout[l].act);
+      );
 
   return ret;
 }
@@ -384,11 +457,13 @@ void free_layer(struct layer* l) {
   if (l->wgt != NULL) free_mat_struct(l->wgt);
   if (l->z != NULL) free_mat_struct(l->z);
   if (l->b != NULL) free_mat_struct(l->z);
+  if (l->error != NULL) free_mat_struct(l->error);
+  if (l->gradient != NULL) free_mat_struct(l->gradient);
 }
 
 void free_nn(struct network* nn)
 {
-  layer_iterator(nn, free_layer(nn->l[i]));
+  layer_iterator(nn, free_layer(nn->l[l]));
   free(nn);
 }
 
@@ -398,23 +473,25 @@ void free_nn(struct network* nn)
 void print_nn(struct network* nn, bool wgt, bool limit)
 {
   printf("----\n");
-  layer_iterator
-    (nn,
-     layer* l = nn->l[i];
+  layer_iterator (nn,
+     layer* la = nn->l[l];
+     matrix* foo = NULL;
 
-     printf("camada %ld (%ld x %ld):\n", i + 1, l->a->m, l->a->n);
-     matrix* foo = p_transpose(l->a);
-     print_long_mat(foo, limit);
-     free_mat_struct(foo);
-
-     if (wgt && nn->l[i]->wgt != NULL){
-       printf("\npeso %ld (%ld x %ld):\n", i + 1, l->wgt->m, l->wgt->n);
-       foo = p_transpose(nn->l[i]->wgt);
+     if (la->a != NULL){ 
+       printf("camada %ld (%ld x %ld)\n", l + 1, la->a->m, la->a->n);
+       foo = p_transpose(la->a);
        print_long_mat(foo, limit);
        free_mat_struct(foo);
      }
 
-     if (i != nn->nlayers - 1){
+     if (wgt && la->wgt != NULL){
+       printf("\npeso %ld (%ld x %ld):\n", l + 1, la->wgt->m, la->wgt->n);
+       foo = p_transpose(nn->l[l]->wgt);
+       print_long_mat(foo, limit);
+       free_mat_struct(foo);
+     }
+
+     if (l != nn->nlayers - 1){
        printf("\n\tvvv\n");
        printf("\n\n");
      }
@@ -425,31 +502,33 @@ void print_nn(struct network* nn, bool wgt, bool limit)
 
 void forward_pass(matrix* input, struct network* nn)
 {
-   layer* out_l = nn->l[nn->nlayers - 1];
+  layer* out_l = nn->l[nn->nlayers - 1];
   nn->l[0]->a = input;
 
-  for (size_t i = 0; i + 1 < nn->nlayers; i++) {
-    struct layer* l = nn->l[i];
-    l->z = dot_product(l->wgt, l->a);
+  for (size_t i = 0; i + 1 < nn->nlayers; i++) 
+  {
+    struct layer* l = nn->l[i]; 
+    l->z = transpose(dot_product(l->wgt, l->a)); 
+    // print_info_mat(l->a);
+    // print_info_mat(l->z);
 
-    if (l->act != NULL)
-      nn->l[i + 1]->a = l->act(l->z);
-  }
+    if (l->act != NULL){ 
+      nn->l[i + 1]->a = l->act(l->z); }
+    else nn->l[i + 1]->a = l->z;
+  } 
 
-  // aplicar a ativação da camada de output no resultado da penultima camada
+  // aplicar a ativação da camada de output em si mesmo
   if (out_l->act != NULL)
     out_l->a = out_l->act(out_l->a);
+
+  // clear_nn() tentaria desalocar o input caso o contrario
+  nn->l[0]->a = NULL;
 }
 
 // desaloca todas as ativações mas mantem pesos e vieses 
 void clear_nn(network* nn)
 {
-  layer_iterator(nn,
-                 if (nn->l[i]->a != NULL)
-                   free_mat_struct(nn->l[i]->a);
-                 if (nn->l[i]->z != NULL)
-                   free_mat_struct(nn->l[i]->z);
-                 );
+  layer_iterator(nn, free_act(nn, a); free_act(nn, z));
 }
 
 // quanto menor melhor
@@ -457,40 +536,56 @@ long double cost_function(matrix* pred, matrix* target)
 {
   long double sum = 0;
   mat_iterator(pred,
-               sum += pow(pred->mat[i][j] - target->mat[i][j], 2);
+               sum += pow(target->mat[i][j] - pred->mat[i][j], 2);
                );
   return sum;
 }
 
-void train_nn(network* nn, train_data* td)
+void train_nn(network* nn, train_data* td, int epochs)
 {
-  long double cost = 0;
-  long double steps = 0;
-  for (; td != NULL; td = td->next, steps++){
-    clear_nn(nn);
-    forward_pass(td->input, nn);
-    cost += cost_function(nn->l[nn->nlayers - 1]->a, one_hot(td->label));
-    printf("%d\n", (int) td->label);
-  }
-
-  printf("cost function: %LF\n", cost / steps);
+    train_data* first = td;
+    for (int i = 0; i < epochs; i++){ 
+	td = first;
+	long double cost = 0, steps = 0;
+	for (; td != NULL; td = td->next, steps++)
+	{
+	    printf("\rtreinando... %.0LF/%d (epoch %d)", steps, train_data_size, i + 1);
+	    fflush(stdout);
+	    forward_pass(td->input, nn);
+	    matrix* target = one_hot(td->label);
+	    cost += cost_function(nn->l[nn->nlayers - 1]->a, target );
+	    calculate_gradients(nn, target);
+        update_parameters(nn);
+	    clear_nn(nn);
+        free_mat_struct(target);
+	} 
+	printf("\rcost function: %LF (epoch %d)\n", cost / steps, i + 1);
+    }
 }
 
 int main(void)
 {
-  printf("c-ann!\n");
+  printf("ffnnc\n");
 
   const layout nn_layout[] = {{784, &sigmoid},
                               {128, &sigmoid},
                               {64, &sigmoid},
-                              {10, NULL},
+                              {10, &softmax},
                               {0, NULL}};
 
-  struct network* nn = make_nn(nn_layout);
+  struct network* nn = make_nn(nn_layout, 1);
 
-  train_data* foo = parse_idx_files(TRAIN_IMAGES_PATH, TRAIN_LABELS_PATH, 2000);
+  train_data* foo = parse_idx_files(TRAIN_IMAGES_PATH, TRAIN_LABELS_PATH, 500);
+  foo = foo->next;
 
-  train_nn(nn, foo);
+  train_nn(nn, foo, 100); 
+
+  // forward_pass(foo->input, nn);
+  // matrix* target = one_hot((uint8_t) foo->label);
+  // long double cost = cost_function(nn->l[nnlast]->a, target);
+  // printf("cost: %LF, target: %d\n\n", cost, (int) foo->label);
+
+  // calculate_error(nn, target);
 
   free_nn(nn);
 
