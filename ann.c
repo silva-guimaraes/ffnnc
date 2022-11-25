@@ -23,7 +23,7 @@ typedef struct act_function {
   // nome
   char* name;
   // esse enumerador quando passado para act_func_lookup[] retorna uma struct act_function para uso
-  // em uma rede neural. util por que isso significa que alguma fonte exterior como um arquivo pode
+  // em uma rede neural. util porque isso significa que alguma fonte externa como um arquivo pode
   // dizer ao programa qual função deve ser utilizada.
   activation_func id; 
   // a função em si.
