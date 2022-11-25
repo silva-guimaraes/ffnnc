@@ -16,15 +16,6 @@
 
 #include "matrix.c"
 
-#define TRAIN_IMAGES_PATH \
-"/home/xi/Desktop/prog/lisp/common lisp/ann/data/train-images.idx3-ubyte"
-#define TRAIN_LABELS_PATH \
-  "/home/xi/Desktop/prog/lisp/common lisp/ann/data/train-labels.idx1-ubyte"
-#define TEST_IMAGES_PATH \
-  "/home/xi/Desktop/prog/lisp/common lisp/ann/data/t10k-images.idx3-ubyte"
-#define TEST_LABELS_PATH \
-  "/home/xi/Desktop/prog/lisp/common lisp/ann/data/t10k-labels.idx1-ubyte"
-
 typedef enum activation_func { NONE = 0,  SIGMOID, RELU, STEP, SOFTMAX } activation_func;
 
 // funções de ativação
@@ -679,36 +670,5 @@ network* import_model(char* filename)
   fclose(file); 
 
   return nn;
-}
-
-// 784 step 64 step 10
-// 784 step 64 soft 10
-// 784 step 128 soft 10
-// 784 relu 128 soft 10 (400)
-
-int main(int argc, char** argv)
-{
-  printf("ffnnc\n");
-
-  const layout nn_layout[] = {{784, RELU}, 
-                              {64, SOFTMAX},
-                              {10, NONE},
-                              {0, NONE}};
-
-  struct network* nn = make_nn(nn_layout, 0.005);
-
-  td_context tdc = {.ntrain = 1000, .ntest = 1000, .test_freq = 10}; 
-  parse_idx_files(TRAIN_IMAGES_PATH, TRAIN_LABELS_PATH, &tdc, training);
-  parse_idx_files(TEST_IMAGES_PATH, TEST_LABELS_PATH, &tdc, testing);
-
-  print_layout(nn);
-
-  train_nn(nn, &tdc, 200); 
-
-  export_model(nn, "export.ffnnc"); 
-
-  free_nn(nn);
-
-  return 0;
 }
 
