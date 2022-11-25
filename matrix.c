@@ -13,18 +13,21 @@ typedef struct matrix {
 
 // (matrix* a, bool limit, int limit_num, const char* x, const char* y)
 #define print_mat(a, limit, limit_num, x, y){               \
+  if (a != NULL) {\
     for (size_t ip = 0; ip < a->m; ip++){                   \
       printf("| ");                                         \
       for (size_t jp = 0; jp < a->n; jp++) {                \
-        if (!limit && jp > limit_num){                      \
-          printf(x, a->n - jp - 1, a->mat[ip][a->n - 1]);   \
-          break;                                            \
-        }                                                   \
-        printf(y, a->mat[ip][jp]);                          \
+	if (!limit && jp > limit_num){                      \
+	  printf(x, a->n - jp - 1, a->mat[ip][a->n - 1]);   \
+	  break;                                            \
+	}                                                   \
+	printf(y, a->mat[ip][jp]);                          \
       }                                                     \
       printf("|\n");                                        \
     }                                                       \
-  } 
+  }                                                       \
+  else printf("null matrix!\n");\
+} 
 
 // (matrix* a, bool limit)
 #define print_simple_mat(a, limit)\
@@ -242,30 +245,34 @@ long double sum_mat(matrix* x)
 }
 
 
-void dump_matrix(FILE* path, matrix* x)
+void dump_matrix(FILE* file, matrix* x)
 {
   /* 4 bytes (big-endian) representando o numero de fileiras da matriz (m)
    * 4 bytes (big-endian) representando o numero de colunas da matriz (n)
    * m x n long doubles em ordem representando a matriz
    */
-  fwrite(&x->m, sizeof(size_t), 1, path);
-  fwrite(&x->n, sizeof(size_t), 1, path);
+  size_t ret = fwrite(&x->m, sizeof(size_t), 1, file);
+  if (ret != 1){ 
+    fprintf(stderr, "size_t ret = fwrite(&x->m, sizeof(size_t), 1, file); <---");
+    exit(1);
+  }
+  fwrite(&x->n, sizeof(size_t), 1, file);
 
   for (size_t i = 0; i < x->m; i++){
-    fwrite(x->mat[i], sizeof(long double), x->n, path);
+    fwrite(x->mat[i], sizeof(long double), x->n, file);
   } 
 }
 
-void dump_params(matrix* weights[3])
-{
-  FILE* dump = fopen("c_ann.weights", "w"); assert(dump != NULL);
-
-  for (int i = 0 ; i < 3; i++){
-    dump_matrix(dump, weights[i]);
-  }
-
-  fclose(dump); 
-}
+// void dump_params(matrix* weights[3])
+// {
+//   FILE* dump = fopen("c_ann.weights", "w"); assert(dump != NULL);
+// 
+//   for (int i = 0 ; i < 3; i++){
+//     dump_matrix(dump, weights[i]);
+//   }
+// 
+//   fclose(dump); 
+// }
 
 matrix* load_matrix(FILE* load)
 {
@@ -274,25 +281,23 @@ matrix* load_matrix(FILE* load)
   fread(&n, sizeof(size_t), 1, load);
 
   matrix* ret = new_mat(m, n, 0); 
-  mat_iterator(ret, 
-               fread(&ret->mat[i][j], sizeof(long double), 1,  load);); 
+  mat_iterator(ret, fread(&ret->mat[i][j], sizeof(long double), 1,  load);); 
 
-  return ret;
-
+  return ret; 
 }
 
-matrix** load_params(FILE* load)
-{ 
-  printf("load!\n");
-  matrix** weights = malloc(sizeof(struct matrix*) * 3);
-
-  for (int i = 0 ; i < 3; i++){
-    // se as matrizes tiverem sido salvas corretamente, o ponteiro da stream vai estar
-    // posicionado no inicio de uma nova matriz toda vez que load_matrix retornar
-    weights[i] = load_matrix(load);
-  } 
-  return weights;
-}
+// matrix** load_params(FILE* load)
+// { 
+//   printf("load!\n");
+//   matrix** weights = malloc(sizeof(struct matrix*) * 3);
+// 
+//   for (int i = 0 ; i < 3; i++){
+//     // se as matrizes tiverem sido salvas corretamente, o ponteiro da stream vai estar
+//     // posicionado no inicio de uma nova matriz toda vez que load_matrix retornar
+//     weights[i] = load_matrix(load);
+//   } 
+//   return weights;
+// }
 
 #define return_map(z, body)                     \
   matrix* ret = new_mat(z->m, z->n, 0);         \

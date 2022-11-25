@@ -25,26 +25,43 @@
 #define TEST_LABELS_PATH \
   "/home/xi/Desktop/prog/lisp/common lisp/ann/data/t10k-labels.idx1-ubyte"
 
+typedef enum activation_func { NONE = 0,  SIGMOID, RELU, STEP, SOFTMAX } activation_func;
+
+// funções de ativação
+typedef struct act_function {
+  // nome
+  char* name;
+  // esse enumerador quando passado para act_func_lookup[] retorna uma struct act_function para uso
+  // em uma rede neural. util por que isso significa que alguma fonte exterior como um arquivo pode
+  // dizer ao programa qual função deve ser utilizada.
+  activation_func id; 
+  // a função em si.
+  matrix* (*func)(matrix*); 
+} act_function; 
+
 // camadas da rede neural.
 typedef struct layer {
   // ativações. resultado de todos os paramatros calculados da camada anterior. a fim de praticidade,
   // isso representa todos os neurônios da camada.
-  struct matrix* a;
+  matrix* a;
   // pesos (weights). parametros. a importancia de cada conexão entre neurônios.
-  struct matrix* wgt;
+  matrix* wgt;
   // pesos aplicados. salvos para serem usados na hora de calcular os gradients.
-  struct matrix* z;
+  matrix* z;
   // vieses (biases). parametros iguais aos pesos. a única diferença é que neuronios
   // tem vieses e não as conexões.
-  struct matrix* b;
+  matrix* b;
   // correções dos pesos. calculados após os resultados.
-  struct matrix* error;
+  matrix* error;
   // se machine learning fosse sobre escalar montanhas, um gradient seria uma trilha pro
   // pico mais alto da montanha. exceto que ao contrario. é aqui que a magia acontece.
-  struct matrix* gradient;
+  matrix* gradient;
   // função de ativação para a proxima camada. pra si própia no caso da ultima camada.
   // ativação é calculada depois da soma de todos os parametros.
-  struct matrix* (*act)(matrix*);
+  // mesma função que a função de ativação em act_info logo abaixo.
+  matrix* (*act)(matrix*); 
+  // informações sobre a função de ativação.
+  act_function act_info;
   // numero de neurônios.
   size_t size;
 } layer;
@@ -55,26 +72,34 @@ typedef struct layer {
 // formato dos dados e dizemos pra rede neural que aquela será a nova primeira camada.
 // são dezenas de inputs diferentes no final das contas.
 typedef struct network {
-  struct layer** l; // array de pointeros pras camadas em si.
+  // array de pointeros pras camadas em si.
+  layer** l; 
+  // coeficiente de apredizado. uma especie de hyperparametro. favor manter em quantidades bem
+  // pequenas (0.05 - 0.0001). ao contrario do que você possa pensar, algum numero maior não necessariamente
+  // siginifica que a rede neural vá aprender com mais eficiência.
   long double learn_rate;
-  size_t nlayers; // numero de camadas
+  // numero de camadas
+  size_t nlayers; 
 } network;
+
 
 // facilitar a criação de uma dessas redes neurais. cada layout representa uma camada
 // da futura rede neural.
 // varios desses em uma array é o jeito que make_nn() entende como uma rede neural deve
 // ser criada. 
 // caso não queira problemas, a array deve terminar com uma ultima camada com o numero de 
-// neuronios sendo 0 e a ativação sendo NULL. 100% das vezes. sendo assim a penultima
+// neuronios sendo 0 e a ativação sendo NONE. 100% das vezes. sendo assim a penultima
 // camada especificada é a ultima camada da rede neural.
 // exemplo:
-// struct layout foo[] = {{20, &sigmoid}, /*input*/
-// 			 {10, &sigmoid},  /*camada 2*/
-// 			 {5, &softmax},   /*output*/
-// 			 {0, NULL}}; 	  /*fim do layout*/
+// struct layout foo[] = {{20, SIGMOID}, /*input*/
+// 			 {10, SOFTMAX},  /*camada 2*/
+// 			 {5, NONE},   	 /*output*/
+// 			 {0, NONE	 /*fim do layout*/
 typedef struct layout {
-  int size; // quantos neurônios por camada.
-  matrix* (*act)(matrix*); // função de ativação
+  // quantos neurônios por camada.
+  int size; 
+  // função de ativação
+  activation_func act; 
 } layout;
 
 
@@ -94,9 +119,9 @@ typedef struct train_data {
   struct train_data* next;
 } train_data, test_data;
 
+typedef enum dataset_type { training = 1, testing } dataset_type;
 
-enum dataset_type { training = 1, testing };
-
+// conteiner com todos os dados para treinamento e mais algumas informações.
 typedef struct train_data_context {
   char* dataset_id;
   train_data* train;
@@ -106,13 +131,10 @@ typedef struct train_data_context {
   size_t test_freq;
 } td_context;
   
-
 // wip
 typedef struct config {
-  struct layout* layout;
+  layout* layout;
 } config;
-
-const long double L_RATE = 0.0005; //não abusar dessa variavel.
 
 #define layer_iterator(nn, body)                \
   for (size_t l = 0; l < nn->nlayers; l++){     \
@@ -135,25 +157,9 @@ matrix* normalize_pixels(train_data* x)
   return ret;
 } 
 
-/* imagem (28x28)
- * 	v
- * input layer (784)
- * 	v
- * ativação sigmoid
- * 	v
- * primeira hidden layer (128) 
- * 	v
- * ativação sigmoid
- * 	v
- * segunda hidden layer (64) 
- * 	v
- * ativação softmax
- * 	v
- * output (10)
- */
-
-
-//http://yann.lecun.com/exdb/mnist/
+// importar dataset MNIST. um conjunto de caracteres desenhados para o aprendizado de uma rede
+// neural capaz de reconhecer digitos escritos em uma (pequena, 28x28) imagem. 
+// http://yann.lecun.com/exdb/mnist/
 void parse_idx_files(char* x, char* y, td_context* tdc, int ds_type)
 {
   tdc->dataset_id = "MNIST";
@@ -383,7 +389,16 @@ matrix* setup_weight(size_t m, size_t n, long double k)
   return x;
 }
 
-layer* new_layer(size_t size, size_t next_size, matrix* (*act)(matrix*))
+struct act_function act_func_lookup[] = { // incrivel sintaxe 
+  {"none", NONE, NULL},
+  {"sigmoid", SIGMOID, &sigmoid},
+  {"relu", RELU, &relu},
+  {"step", STEP, &step},
+  {"softmax", SOFTMAX, &softmax}
+};
+
+
+layer* new_layer(size_t size, size_t next_size, activation_func act)
 {
   layer* ret = malloc(sizeof(struct layer));
 
@@ -394,7 +409,8 @@ layer* new_layer(size_t size, size_t next_size, matrix* (*act)(matrix*))
   ret->error = NULL;
   ret->gradient = NULL;
   ret->size = size;
-  ret->act = act;
+  ret->act = act_func_lookup[act].func;
+  ret->act_info = act_func_lookup[act];
 
   return ret;
 }
@@ -505,9 +521,7 @@ void clear_nn(network* nn)
 long double cost_function(matrix* pred, matrix* target)
 {
   long double sum = 0;
-  mat_iterator(pred,
-               sum += pow(target->mat[i][j] - pred->mat[i][j], 2);
-               );
+  mat_iterator(pred, sum = pow(target->mat[i][j] - pred->mat[i][j], 2));
   return sum;
 }
 
@@ -542,13 +556,13 @@ void train_nn(network* nn, td_context* tdc, int epochs)
         fflush(stdout);
         forward_pass(td->input, nn);
         matrix* target = one_hot(td->label);
-        cost += cost_function(nn->l[nn->nlayers - 1]->a, target );
+        cost += cost_function(nn->l[nn->nlayers - 1]->a, target);
         calculate_gradients(nn, target);
         update_parameters(nn);
         clear_nn(nn);
         free_mat_struct(target);
       } 
-    printf("\rcost function: %LF (epoch %d)\n", cost / steps, i + 1);
+    printf("\rcost function: %LF (epoch %d)\n", cost / tdc->ntrain, i + 1);
 
     if (tdc->ntest > 0 && (i + 1) % tdc->test_freq == 0) {
         long double test_cost = test_nn(nn, tdc);
@@ -559,9 +573,112 @@ void train_nn(network* nn, td_context* tdc, int epochs)
 
 void print_layout(network* nn) 
 {
-  layer_iterator(nn, printf("%ld > ", nn->l[l]->size));
-  printf("\n");
-    
+  layer_iterator(nn, 
+      printf("%ld ", nn->l[l]->size);
+      if (l + 1 < nn->nlayers)
+	printf("> %s > ", nn->l[l]->act_info.name));
+  printf("\n"); 
+}
+
+void dump_layer(FILE* file, layer* lay)
+{ 
+  fwrite(&lay->size, sizeof(size_t), 1, file);
+  fwrite(&lay->act_info.id, sizeof(activation_func), 1, file);
+}
+
+void dump_params(FILE* file, layer* lay)
+{
+  uint8_t yay = 1, nay = 0;
+
+  if (lay->wgt != NULL)
+  { 
+    fwrite(&yay, sizeof(uint8_t), 1, file);
+    dump_matrix(file, lay->wgt);
+  }
+  else
+    fwrite(&nay, sizeof(uint8_t), 1, file); 
+}
+
+// apenas pesos por enquanto
+matrix* load_params(FILE* file, layer* lay)
+{ 
+  uint8_t yaynay; 
+  fread(&yaynay, sizeof(uint8_t), 1, file);
+  if (yaynay > 1){
+    fprintf(stderr, "fread(&yaynay, sizeof(uint8_t), 1, file); <---\n");
+    exit(1);
+  }
+  if (yaynay == 1){ 
+    return load_matrix(file);
+  }
+  else return NULL; 
+}
+
+/* string de 5 bytes com os caracteres "ffnnc". não contendo \n no final.
+ * unsigned integer (4 bytes) representando o numero de camadas.
+ * long double (10 bytes) representando o learning rate.
+ * para cada camada:
+ * 	unsigned integer (4 bytes) com o numero de neuronios da camada.
+ * 	unsigned integer (4 bytes) com o id da funçá̃o de ativação da camada.
+ * em seguida vem os parametros. por enquanto apenas pesos.
+ * para cada camada:
+ * 	
+ */
+void export_model(network* nn, const char* filename)
+{
+  FILE* file = fopen(filename, "w"); 
+  // identificador desse formato de arquivo
+  fwrite(&"ffnnc", sizeof(char), 5, file);
+
+  fwrite(&nn->nlayers, sizeof(size_t), 1, file);
+
+  fwrite(&nn->learn_rate, sizeof(long double), 1, file);
+
+  layer_iterator(nn, dump_layer(file, nn->l[l]));
+
+  layer_iterator(nn, dump_params(file, nn->l[l]));
+
+  fclose(file); 
+}
+
+network* import_model(char* filename)
+{
+  FILE* file = fopen(filename, "r");
+
+  char* magic = malloc(sizeof(char) * 6); magic[5] = '\n';
+  fread(magic, sizeof(char), 5, file);
+  if (!strcmp(magic, "ffnnc")){ 
+    fprintf(stderr, "arquivo não é do tipo ffncc!. saindo.\n");
+    return NULL;
+  }
+  size_t nlayers = 0; 
+  fread(&nlayers, sizeof(size_t), 1, file);
+  if (nlayers == 0){
+    fprintf(stderr, "fread(&nlayers, sizeof(size_t), 1, file); <---\n");
+    return NULL;
+  }
+  long double learn_rate = 0; 
+  fread(&learn_rate, sizeof(long double), 1, file);
+  if (learn_rate == 0 || isnan(learn_rate)){
+    fprintf(stderr, "fread(&learn_rate, sizeof(long double), 1, file); <---\n");
+    return NULL;
+  }
+
+  layout* nn_layout = malloc(sizeof(struct layout) * (nlayers + 1));
+
+  for (size_t i = 0; i < nlayers; i++){ 
+      fread(&nn_layout[i].size, sizeof(size_t), 1, file);
+      fread(&nn_layout[i].act, sizeof(activation_func), 1, file);
+  }
+  nn_layout[nlayers].size = 0; nn_layout[nlayers].act = NONE;
+
+  network* nn = make_nn(nn_layout, learn_rate); 
+
+  layer_iterator(nn, free_act(nn, wgt); nn->l[l]->wgt = load_params(file, nn->l[l]));
+
+  fclose(file); 
+
+  return nn;
 }
 
 // 784 step 64 step 10
@@ -569,26 +686,26 @@ void print_layout(network* nn)
 // 784 step 128 soft 10
 // 784 relu 128 soft 10 (400)
 
-int main(void)
+int main(int argc, char** argv)
 {
   printf("ffnnc\n");
 
-  const layout nn_layout[] = {{784, &relu}, 
-                              // {392, &softmax},
-                              {64, &softmax},
-                              {10, NULL},
-                              {0, NULL}};
+  const layout nn_layout[] = {{784, RELU}, 
+                              {64, SOFTMAX},
+                              {10, NONE},
+                              {0, NONE}};
+
   struct network* nn = make_nn(nn_layout, 0.005);
 
-
-  td_context tdc = {.ntrain = 60000, .ntest = 500, .test_freq = 10};
-
+  td_context tdc = {.ntrain = 1000, .ntest = 1000, .test_freq = 10}; 
   parse_idx_files(TRAIN_IMAGES_PATH, TRAIN_LABELS_PATH, &tdc, training);
   parse_idx_files(TEST_IMAGES_PATH, TEST_LABELS_PATH, &tdc, testing);
 
   print_layout(nn);
 
   train_nn(nn, &tdc, 200); 
+
+  export_model(nn, "export.ffnnc"); 
 
   free_nn(nn);
 
