@@ -1,6 +1,16 @@
 
 #ifndef matrix_c
 #define matrix_c
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <endian.h>
+#include <stdbool.h>
+#include <time.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <assert.h>
+
 
 const size_t sdo = sizeof(long double); // todo: não.
 
@@ -88,9 +98,6 @@ void print_info_mat(matrix* a)
 
 #define mat_pow(a, s)\
   mat_iterator(a, a->mat[i][j] = pow(a->mat[i][j], s )); 
-
-// amo C
-
 
 
 long double** alloc_mat(size_t m, size_t n, long double init)
@@ -263,17 +270,6 @@ void dump_matrix(FILE* file, matrix* x)
   } 
 }
 
-// void dump_params(matrix* weights[3])
-// {
-//   FILE* dump = fopen("c_ann.weights", "w"); assert(dump != NULL);
-// 
-//   for (int i = 0 ; i < 3; i++){
-//     dump_matrix(dump, weights[i]);
-//   }
-// 
-//   fclose(dump); 
-// }
-
 matrix* load_matrix(FILE* load)
 {
   size_t m, n; 
@@ -286,19 +282,6 @@ matrix* load_matrix(FILE* load)
   return ret; 
 }
 
-// matrix** load_params(FILE* load)
-// { 
-//   printf("load!\n");
-//   matrix** weights = malloc(sizeof(struct matrix*) * 3);
-// 
-//   for (int i = 0 ; i < 3; i++){
-//     // se as matrizes tiverem sido salvas corretamente, o ponteiro da stream vai estar
-//     // posicionado no inicio de uma nova matriz toda vez que load_matrix retornar
-//     weights[i] = load_matrix(load);
-//   } 
-//   return weights;
-// }
-
 #define return_map(z, body)                     \
   matrix* ret = new_mat(z->m, z->n, 0);         \
   mat_iterator(z, body);                        \
@@ -310,6 +293,14 @@ matrix* load_matrix(FILE* load)
 long double mat_average(matrix* a)
 {
   return sum_mat(a) / (a->m * a->n);
+}
+
+long double onehot_argmax(matrix* a)
+{
+  size_t max = 0;
+  mat_iterator(a, if (a->mat[0][j] > a->mat[0][max]) max = j);
+
+  return max;
 }
 
 #endif

@@ -4,7 +4,7 @@ FLAGS=-Wextra -Wpedantic
 TARGET=main
 
 all: ann.c
-	$(CC) $(FLAGS) -o ann main.c -lm -lgraph
+	$(CC) $(FLAGS) -o ann main.c -lm
 
 run: all
 	./ann 
