@@ -3,7 +3,7 @@ CC=gcc
 FLAGS=-Wextra -Wpedantic
 TARGET=main
 
-all: ann.c
+all: main.c
 	$(CC) $(FLAGS) -o ann main.c -lm
 
 run: all
